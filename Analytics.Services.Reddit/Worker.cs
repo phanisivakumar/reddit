@@ -6,177 +6,157 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 
-namespace Analytics.Services.Reddit;
-
-public class Worker : BackgroundService
+namespace Analytics.Services.Reddit
 {
-    private readonly ILogger<Worker> _logger;
-    private readonly Tokenizer _tokenService;
-    private readonly PubSubQueue<string> _pubSubQueue;
-    private readonly IConfiguration _configuration;
-    private DbConnector _dbConnector;
-    private readonly Enrich _enrich;
-
-    public Worker(ILogger<Worker> logger, Tokenizer tokenService, PubSubQueue<string> pubSubQueue, IConfiguration configuration, DbConnector dbConnector)
+    public class Worker : BackgroundService
     {
-        _logger = logger;
-        _tokenService = tokenService;
-        _pubSubQueue = pubSubQueue;
-        _configuration = configuration;
-        _dbConnector = dbConnector;
-        _enrich = new Enrich();
-    }
+        private readonly ILogger<Worker> _logger;
+        private readonly Tokenizer _tokenService;
+        private readonly PubSubQueue<string> _pubSubQueue;
+        private readonly IConfiguration _configuration;
+        private readonly DbConnector _dbConnector;
+        private readonly Enrich _enrich;
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        var accessToken = await _tokenService.GetAccessToken();
-        if (string.IsNullOrEmpty(accessToken))
+        public Worker(ILogger<Worker> logger, Tokenizer tokenService, PubSubQueue<string> pubSubQueue, IConfiguration configuration, DbConnector dbConnector)
         {
-            _logger.LogWarning("Access token is null or empty. Exiting.");
-            return;
+            _logger = logger;
+            _tokenService = tokenService;
+            _pubSubQueue = pubSubQueue;
+            _configuration = configuration;
+            _dbConnector = dbConnector;
+            _enrich = new Enrich();
         }
 
-        var rateLimitter = new RateLimiter();
-        var rateLimits = rateLimitter.CheckRateLimits(accessToken).Result;
-            
-        if (rateLimits.RateLimitRemaining == 0)
+        protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            // Wait until the rate limit reset period before making more requests
-            var resetTime = DateTimeOffset.FromUnixTimeSeconds(rateLimits.RateLimitReset);
-            var currentTime = DateTimeOffset.Now;
-            var waitTime = resetTime - currentTime;
-            Console.WriteLine($"Waiting for {waitTime.TotalSeconds} seconds...");
-            await Task.Delay(waitTime);
-        }
-        else
-        {
-            var subreddits = _configuration.GetSection("Subreddits").Get<List<string>>();
-
-            foreach (var subreddit in subreddits)
+            var accessToken = await _tokenService.GetAccessToken();
+            if (string.IsNullOrEmpty(accessToken))
             {
-                await GetTopVotes(subreddit, accessToken);
+                _logger.LogWarning("Access token is null or empty. Exiting.");
+                return;
             }
 
-            await GetSportsNews("sports", accessToken);
-            
-            // Contributors api is returning forbidden error, may be a permission issue.
-            //await GetTopContributors(accessToken);
-            
-            await SubProcessor(stoppingToken);
-        }
-    }
+            var rateLimitter = new RateLimiter();
+            var rateLimits = await rateLimitter.CheckRateLimits(accessToken);
 
-    private async Task GetTopVotes(string subreddit,string accessToken)
-    {
-        var topVotesResult = await TopVotes.GetTopVotes(subreddit, accessToken);
-        if (!string.IsNullOrEmpty(topVotesResult.Item1))
-        {
-            var jsonObject = new
+            if (rateLimits.RateLimitRemaining == 0)
             {
-                _id = $"{subreddit}:top1",
-                Title = topVotesResult.Item1,
-                Upvotes = topVotesResult.Item2
-            };
-            
-            string enrichedMessage = JsonConvert.SerializeObject(jsonObject);
-            
-            _logger.LogInformation(enrichedMessage);
-            
-            _pubSubQueue.Publish(enrichedMessage);
-        }
-        else
-        {
-            _logger.LogInformation("No top votes found!");
-        }
-    }
+                var resetTime = DateTimeOffset.FromUnixTimeSeconds(rateLimits.RateLimitReset);
+                var currentTime = DateTimeOffset.Now;
+                var waitTime = resetTime - currentTime;
+                Console.WriteLine($"Waiting for {waitTime.TotalSeconds} seconds...");
+                await Task.Delay(waitTime, stoppingToken);
+            }
+            else
+            {
+                var subreddits = _configuration.GetSection("Subreddits").Get<List<string>>();
 
-    private async Task GetTopContributors(string subreddit,string accessToken)
-    {
-        var topContributorsResult = await TopContributors.GetTopContributorsInfo(subreddit, accessToken);
-        if (!string.IsNullOrEmpty(topContributorsResult.ToString()))
-        {
-            var messageReceived = topContributorsResult.ToString();
-            _logger.LogInformation(messageReceived);
+                var tasks = new List<Task>();
 
-            // Publish the topVotesResult message using PubSubQueue
-            _pubSubQueue.Publish(messageReceived);
+                foreach (var subreddit in subreddits)
+                {
+                    tasks.Add(GetTopVotesAsync(subreddit, accessToken));
+                }
 
-            // await SubProcessor(stoppingToken);
+                tasks.Add(GetSportsNewsAsync("sports", accessToken));
+                // Add more tasks as needed
+
+                await Task.WhenAll(tasks);
+
+                await SubProcessor(stoppingToken);
+            }
         }
-        else
+
+        private async Task GetTopVotesAsync(string subreddit, string accessToken)
         {
-            _logger.LogInformation("No top votes found!");
-        }
-    }
-    
-    private async Task GetSportsNews(string subreddit,string accessToken)
-    {
-        await foreach (var messageReceived in SportsNews.GetSportsData(subreddit, accessToken))
-        {
-            if (!string.IsNullOrEmpty(messageReceived.Item1))
+            var topVotesResult = await TopVotes.GetTopVotes(subreddit, accessToken);
+            if (!string.IsNullOrEmpty(topVotesResult.Item1))
             {
                 var jsonObject = new
                 {
-                    _id = $"{subreddit}:{messageReceived.Item1}",
-                    Title = messageReceived.Item1,
-                    Author = messageReceived.Item2,
-                    NumOfVotes = messageReceived.Item3
+                    _id = $"{subreddit}:top1",
+                    Title = topVotesResult.Item1,
+                    Upvotes = topVotesResult.Item2
                 };
-            
+
                 string enrichedMessage = JsonConvert.SerializeObject(jsonObject);
-            
+
                 _logger.LogInformation(enrichedMessage);
-            
+
                 _pubSubQueue.Publish(enrichedMessage);
             }
+            else
+            {
+                _logger.LogInformation("No top votes found!");
+            }
         }
-    }
-    
-    private async Task SubProcessor(CancellationToken stoppingToken)
-    {
-        _logger.LogInformation("SubProcessor Service is starting.");
-    
-        // Subscribe to the PubSubQueue only once
-        _pubSubQueue.Subscribe(message => HandleMessage(message, stoppingToken));
-    
-        Console.WriteLine("Sub Processor Subscribed to Service!!");
-    
-        // Wait for cancellation or completion
-        await Task.Delay(Timeout.Infinite, stoppingToken);
-    
-        _logger.LogInformation("SubProcessor Service is stopping.");
-    }
-    
-    private async Task HandleMessage(string message, CancellationToken stoppingToken)
-    {
-        try
-        {
-            _logger.LogInformation($"Received message: {message}");
 
-            var _id = Enrich.ExtractIdFromJson(message);
-            
-            // Process the message and save it to the database
-            await DbOperation(stoppingToken, _id, message);
-    
-            _logger.LogInformation("Message processed and saved in the database.");
-        }
-        catch (Exception ex)
+        private async Task GetSportsNewsAsync(string subreddit, string accessToken)
         {
-            _logger.LogError($"Error processing message: {ex.Message}");
+            await foreach (var messageReceived in SportsNews.GetSportsData(subreddit, accessToken))
+            {
+                if (!string.IsNullOrEmpty(messageReceived.Item1))
+                {
+                    var jsonObject = new
+                    {
+                        _id = $"{subreddit}:{messageReceived.Item1}",
+                        Title = messageReceived.Item1,
+                        Author = messageReceived.Item2,
+                        NumOfVotes = messageReceived.Item3
+                    };
+
+                    string enrichedMessage = JsonConvert.SerializeObject(jsonObject);
+
+                    _logger.LogInformation(enrichedMessage);
+
+                    _pubSubQueue.Publish(enrichedMessage);
+                }
+            }
         }
-    }
-    
-    private async Task DbOperation(CancellationToken stoppingToken, string key, string message)
-    {
-        var db = new Connect(_logger, _dbConnector);
-    
-        _logger.LogInformation("Saving to database started at" + DateTimeOffset.Now);
-    
-        while (!stoppingToken.IsCancellationRequested)
+
+        private async Task SubProcessor(CancellationToken stoppingToken)
         {
-            db.Save(key, message);
-    
-            await Task.Delay(2000, stoppingToken);
+            _logger.LogInformation("SubProcessor Service is starting.");
+
+            _pubSubQueue.Subscribe(message => HandleMessage(message, stoppingToken));
+
+            Console.WriteLine("Sub Processor Subscribed to Service!!");
+
+            await Task.Delay(Timeout.Infinite, stoppingToken);
+
+            _logger.LogInformation("SubProcessor Service is stopping.");
+        }
+
+        private async Task HandleMessage(string message, CancellationToken stoppingToken)
+        {
+            try
+            {
+                _logger.LogInformation($"Received message: {message}");
+
+                var _id = Enrich.ExtractIdFromJson(message);
+
+                await DbOperation(stoppingToken, _id, message);
+
+                _logger.LogInformation("Message processed and saved in the database.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Error processing message: {ex.Message}");
+            }
+        }
+
+        private async Task DbOperation(CancellationToken stoppingToken, string key, string message)
+        {
+            var db = new Connect(_logger, _dbConnector);
+
+            _logger.LogInformation("Saving to database started at" + DateTimeOffset.Now);
+
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                db.Save(key, message);
+
+                await Task.Delay(2000, stoppingToken);
+            }
         }
     }
 }
