@@ -60,3 +60,10 @@ To access the Redis Cloud trial version, you'll need the following connection de
 - **Password**: `XTQ2cYN0fsQg0YQcsXwXfOW8Ec6uRyKi`
 
 This key will grant you access to the Redis Cloud trial version for your data storage needs.
+
+## Output - Client UI
+
+![image](https://github.com/phanisivakumar/reddit/assets/37417609/dd2454e0-ddfe-47eb-a110-8158fed1d1ea)
+
+
+
