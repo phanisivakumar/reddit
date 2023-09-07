@@ -51,7 +51,7 @@ Preferably, store sensitive information like these in a Secure Key Vault. For no
   "UserAgent": "MY USER AGENT"
 }
 
-## Redis Cloud Trial Version Key
+# Redis Cloud Trial Version Key
 
 To access the Redis Cloud trial version, you'll need the following connection details:
 
@@ -61,9 +61,9 @@ To access the Redis Cloud trial version, you'll need the following connection de
 
 This key will grant you access to the Redis Cloud trial version for your data storage needs.
 
-## Output - Client UI
+# Output - Client UI
 
-![image](https://github.com/phanisivakumar/reddit/assets/37417609/dd2454e0-ddfe-47eb-a110-8158fed1d1ea)
+![image](https://github.com/phanisivakumar/reddit/raw/main/assets/37417609/dd2454e0-ddfe-47eb-a110-8158fed1d1ea.png)
 
 
 
