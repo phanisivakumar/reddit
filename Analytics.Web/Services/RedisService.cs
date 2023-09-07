@@ -21,4 +21,13 @@ public class RedisService
         
         return data;
     }
+    
+    public List<string> GetPatternFromDatabase(string keyPattern)
+    {
+        var db = new Connect(_logger, _dbConnector);
+        var data = db.ReadLike(keyPattern);
+        _logger.LogInformation(data.ToString());
+        
+        return data;
+    }
 }

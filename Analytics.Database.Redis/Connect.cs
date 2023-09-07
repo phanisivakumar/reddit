@@ -25,6 +25,29 @@ public sealed class Connect : IConnect
         return _database?.StringGet(key) ?? string.Empty;
     }
 
+    public List<string> ReadLike(string keyPattern)
+    {
+        var records = new List<string>();
+        var servers = _dbConnector.GetConnection().GetServers();
+
+        foreach (var server in servers)
+        {
+            var keys = server.Keys(pattern: keyPattern).Select(k => (string)k).ToArray();
+            
+            foreach (var key in keys)
+            {
+                var value = Read(key);
+                if (!string.IsNullOrEmpty(value))
+                {
+                    records.Add(value);
+                }
+            }
+        }
+        
+        return records;
+    }
+    
+
     public void Save(string key, string value)
     {
         _database?.StringSet(key, value);

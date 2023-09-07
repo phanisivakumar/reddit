@@ -21,9 +21,22 @@ public class HomeController : Controller
     {
         string jsonString = _redisService.GetValueFromDatabase("funny:top1");
         var socialPost = JsonConvert.DeserializeObject<SocialPost>(jsonString);
-        
 
-        return View(socialPost);
+        var homeModel = new HomeModel();
+        homeModel.SocialPost = socialPost;
+            
+        List<string> jsonData = _redisService.GetPatternFromDatabase("sports:*");
+        var sportsPosts = new List<SportsPost>();
+        
+        foreach (var json in jsonData)
+        {
+            var sportsPost = JsonConvert.DeserializeObject<SportsPost>(json);
+            sportsPosts.Add(sportsPost);
+        }
+
+        homeModel.SportsPosts = sportsPosts;
+            
+        return View(homeModel);
     }
 
     [ResponseCache(Duration = 0, Location = ResponseCacheLocation.None, NoStore = true)]

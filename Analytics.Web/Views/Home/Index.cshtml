@@ -1,6 +1,17 @@
-﻿<h1>Todays Top Votes</h1>
+﻿@model Analytics.Web.Models.HomeModel
+
+<h1>Todays Top Votes</h1>
 <p>
-    <strong>Title: </strong>@Model.Title
+    <strong>Title: </strong>@Model.SocialPost.Title
     <br/>
-    <strong>UpVotes: </strong>@Model.Upvotes
+    <strong>UpVotes: </strong>@Model.SocialPost.Upvotes
 </p>
+
+<h1>Sports News</h1>
+@foreach (var sportsPost in Model.SportsPosts)
+{
+    <div>
+        <div><strong>Title: </strong>@sportsPost.Title</div>
+        <p><strong>Author: </strong>@sportsPost.Author | <strong>Votes: </strong>@sportsPost.NumOfVotes</p>
+    </div>
+}
